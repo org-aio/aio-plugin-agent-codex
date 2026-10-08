@@ -1,9 +1,11 @@
 import { decode, encode, SENTRY_METHODS, type NativeFrame, type NativeSnapshot, type WebFrame } from "../shared/wire.js";
+import { installFileUploads } from "./files.js";
 
 export interface BrowserTransportOptions {
   snapshot: NativeSnapshot;
   send(frame: WebFrame): Promise<void>;
   onError(error: Error): void;
+  onUploadState?(pending: number, error?: string): void;
 }
 
 export function createBrowserTransport(options: BrowserTransportOptions) {
@@ -28,22 +30,30 @@ export function createBrowserTransport(options: BrowserTransportOptions) {
     if (disposed) { return; }
     void transmit(frame).catch(error => options.onError(error instanceof Error ? error : new Error(String(error))));
   };
-  const call = (method: Extract<WebFrame, { kind: "call" }>["method"], args: unknown[]): Promise<unknown> => {
+  const request = (id: string, frame: WebFrame): Promise<unknown> => {
     if (disposed) { return Promise.reject(new Error("Codex 网页连接已经关闭")); }
-    const id = crypto.randomUUID();
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         pending.delete(id);
         reject(new Error("Codex 桌面请求超时，执行结果需要重新确认"));
       }, 60_000);
       pending.set(id, { resolve, reject, timer });
-      void transmit({ kind: "call", id, method, payload: encode(args) }).catch(error => {
+      void transmit(frame).catch(error => {
         clearTimeout(timer);
         pending.delete(id);
         reject(error);
       });
     });
   };
+  const call = (method: Extract<WebFrame, { kind: "call" }>["method"], args: unknown[]): Promise<unknown> => {
+    const id = crypto.randomUUID();
+    return request(id, { kind: "call", id, method, payload: encode(args) });
+  };
+  const files = installFileUploads({
+    enabled: options.snapshot.fileUploads === true,
+    request: frame => request(frame.id, frame),
+    onState: (pending, error) => options.onUploadState?.(pending, error),
+  });
   const bridge = {
     windowType: "electron",
     getPreloadStartedAtMs: () => performance.timeOrigin,
@@ -56,7 +66,7 @@ export function createBrowserTransport(options: BrowserTransportOptions) {
     isDeviceCheckSupported: () => options.snapshot.isDeviceCheckSupported,
     isIntelMacBuild: () => options.snapshot.isIntelMacBuild,
     getSharedObjectSnapshotValue: (key: string) => sharedObjects[key],
-    getPathForFile: (_file: File) => null,
+    getPathForFile: (file: File) => files.path(file),
     startFileDrag: (_value: unknown) => false,
     startLinkDrag: (value: unknown) => { void call("startLinkDrag", [value]).catch(options.onError); },
     acknowledgeChunkedMessage: (transferId: string, sequence: number) => {
@@ -143,13 +153,14 @@ export function createBrowserTransport(options: BrowserTransportOptions) {
           document.documentElement.dataset.theme = theme;
           for (const listener of themeListeners) { listener(); }
           return;
+        case "upload-result":
         case "call-result": {
           const request = pending.get(frame.id);
           if (!request) { return; }
           pending.delete(frame.id);
           clearTimeout(request.timer);
           if (frame.error) { request.reject(new Error(frame.error)); }
-          else { request.resolve(frame.payload ? decode(frame.payload) : undefined); }
+          else { request.resolve(frame.kind === "upload-result" ? frame.path : frame.payload ? decode(frame.payload) : undefined); }
           return;
         }
         case "error":
@@ -163,6 +174,7 @@ export function createBrowserTransport(options: BrowserTransportOptions) {
       if (disposed) { return; }
       for (const worker of workers.keys()) { send({ kind: "unsubscribe-worker", worker }); }
       disposed = true;
+      files.dispose();
       appHost?.close();
       workers.clear();
       themeListeners.clear();

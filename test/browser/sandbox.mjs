@@ -29,6 +29,11 @@ const module=`
  worker.onmessage=event=>{const p=document.createElement('p');p.textContent=event.data;root.append(p);worker.terminate();};
  const action=document.createElement('button');action.textContent='测试原生请求';action.onclick=async()=>{const result=await window.electronBridge.sendMessageFromView({type:'fixture'});output.textContent=result;};root.append(action);
  const next=document.createElement('button');next.textContent='打开测试详情';next.onclick=()=>history.pushState({},'',new URL('?initialRoute=/local/fixture-next',location.href));root.append(next);
+ const attachments=document.createElement('pre');attachments.id='attachments';attachments.dataset.count='0';root.append(attachments);const records=[];
+ const record=(kind,files,text)=>{const paths=Array.from(files).map(file=>window.electronBridge.getPathForFile(file));if(paths.some(path=>typeof path!=='string'))throw new Error('附件事件在设备确认前到达原版模块');records.push({kind,names:Array.from(files).map(file=>file.name),paths,text});attachments.textContent=JSON.stringify(records);attachments.dataset.count=String(records.length);};
+ const input=document.createElement('input');input.type='file';input.multiple=true;input.setAttribute('aria-label','选择测试附件');input.onchange=()=>record('input',input.files);root.append(input);
+ const drop=document.createElement('div');drop.id='drop';drop.textContent='拖入测试附件';drop.ondrop=event=>{event.preventDefault();record('drop',event.dataTransfer.files,event.dataTransfer.getData('text/plain'));};root.append(drop);
+ const paste=document.createElement('textarea');paste.id='paste';paste.setAttribute('aria-label','粘贴测试附件');paste.onpaste=event=>{event.preventDefault();record('paste',event.clipboardData.files,event.clipboardData.getData('text/plain'));};root.append(paste);
  addEventListener('message',event=>{if(event.data?.type==='navigate-to-route'){history.replaceState({},'',new URL('?initialRoute='+encodeURIComponent(event.data.path),location.href));}});
 `;
 const server=createServer(async(req,res)=>{
@@ -76,9 +81,31 @@ const server=createServer(async(req,res)=>{
  }catch(error){res.writeHead(500).end(error.message);}
 });
 const web=new WebSocketServer({server});
+const uploaded=[];
 web.on('connection',socket=>{
- socket.send(JSON.stringify({kind:'ready',snapshot:{appSessionId:'native-fixture',theme:'light',sharedObjects:{}}}));
- socket.on('message',bytes=>{const frame=JSON.parse(bytes.toString());if(frame.kind==='call'){socket.send(JSON.stringify({kind:'frame',frame:{kind:'call-result',id:frame.id,payload:encode('原生请求已确认')}}));}});
+ const active=new Map();
+ const send=frame=>{if(socket.readyState===1){socket.send(JSON.stringify({kind:'frame',frame}));}};
+ socket.send(JSON.stringify({kind:'ready',snapshot:{appSessionId:'native-fixture',theme:'light',sharedObjects:{},fileUploads:true}}));
+ socket.on('message',bytes=>{
+  const frame=JSON.parse(bytes.toString());
+  if(frame.kind==='call'){send({kind:'call-result',id:frame.id,payload:encode('原生请求已确认')});return;}
+  if(!frame.kind.startsWith('upload-'))return;
+  let result={kind:'upload-result',id:frame.id};
+  if(frame.kind==='upload-begin'){
+   if(frame.name==='fail.txt'){result.error='测试设备拒绝附件';}
+   else{active.set(frame.id,{name:frame.name,size:frame.size,parts:[],received:0});}
+  }
+  if(frame.kind==='upload-chunk'){
+   const item=active.get(frame.id);assert(item);assert.equal(frame.offset,item.received);
+   const bytes=Buffer.from(frame.data,'base64');item.parts.push(bytes);item.received+=bytes.length;
+  }
+  if(frame.kind==='upload-complete'){
+   const item=active.get(frame.id);assert(item);assert.equal(item.received,item.size);
+   uploaded.push({name:item.name,bytes:Buffer.concat(item.parts)});active.delete(frame.id);result.path='/tmp/aio-upload-fixture/'+frame.id+'/'+item.name;
+  }
+  if(frame.kind==='upload-abort'){active.delete(frame.id);}
+  setTimeout(()=>send(result),30);
+ });
 });
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));origin=`http://127.0.0.1:${server.address().port}`;
 const browser=await chromium.launch({headless:true});
@@ -94,6 +121,25 @@ try {
  await codex.getByText('原生请求已确认',{exact:true}).waitFor();
  assert.equal(await plugin.locator('#status').innerText(),'已连接');
  assert.equal(await codex.locator('body').evaluate(()=>window.origin),'null');
+ const attachmentBytes=Buffer.alloc(256*1024+17);for(let i=0;i<attachmentBytes.length;i++){attachmentBytes[i]=i%256;}
+ await codex.getByLabel('选择测试附件').setInputFiles([{name:'设计附件.bin',mimeType:'application/octet-stream',buffer:attachmentBytes},{name:'empty.txt',mimeType:'text/plain',buffer:Buffer.alloc(0)}]);
+ await codex.locator('#attachments[data-count="1"]').waitFor();
+ let records=JSON.parse(await codex.locator('#attachments').innerText());assert.deepEqual(records[0].names,['设计附件.bin','empty.txt']);assert(records[0].paths.every(path=>path.startsWith('/tmp/aio-upload-fixture/')));
+ assert.deepEqual(uploaded.find(item=>item.name==='设计附件.bin').bytes,attachmentBytes);assert.equal(uploaded.find(item=>item.name==='empty.txt').bytes.length,0);
+ await codex.locator('#drop').evaluate(target=>{const transfer=new DataTransfer();transfer.setData('text/plain','保留拖拽文本');transfer.items.add(new File(['drop bytes'],'drop.txt'));target.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer}));});
+ await codex.locator('#attachments[data-count="2"]').waitFor();
+ records=JSON.parse(await codex.locator('#attachments').innerText());assert.equal(records[1].kind,'drop');assert.equal(records[1].text,'保留拖拽文本');assert.equal(uploaded.find(item=>item.name==='drop.txt').bytes.toString(),'drop bytes');
+ await codex.locator('#paste').evaluate(target=>{const transfer=new DataTransfer();transfer.setData('text/plain','保留剪贴板文本');transfer.items.add(new File([Uint8Array.from([0,128,255])],'paste.png',{type:'image/png'}));target.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:transfer}));});
+ await codex.locator('#attachments[data-count="3"]').waitFor();
+ records=JSON.parse(await codex.locator('#attachments').innerText());assert.equal(records[2].kind,'paste');assert.equal(records[2].text,'保留剪贴板文本');assert.deepEqual(uploaded.find(item=>item.name==='paste.png').bytes,Buffer.from([0,128,255]));
+ await codex.getByLabel('选择测试附件').setInputFiles({name:'stale.txt',mimeType:'text/plain',buffer:Buffer.from('stale')});
+ await codex.getByLabel('选择测试附件').setInputFiles({name:'current.txt',mimeType:'text/plain',buffer:Buffer.from('current')});
+ await codex.locator('#attachments[data-count="4"]').waitFor();records=JSON.parse(await codex.locator('#attachments').innerText());assert.deepEqual(records[3].names,['current.txt']);
+ await codex.getByLabel('选择测试附件').setInputFiles({name:'fail.txt',mimeType:'text/plain',buffer:Buffer.from('failure')});
+ await plugin.getByText('测试设备拒绝附件',{exact:true}).waitFor();assert.equal(await codex.locator('#attachments').getAttribute('data-count'),'4');
+ await codex.getByRole('button',{name:'测试原生请求'}).click();await codex.getByText('原生请求已确认',{exact:true}).waitFor();
+ await codex.getByLabel('选择测试附件').setInputFiles({name:'retry.txt',mimeType:'text/plain',buffer:Buffer.from('retry')});
+ await codex.locator('#attachments[data-count="5"]').waitFor();await plugin.locator('#status[data-state="ready"]').waitFor();
  await codex.getByRole('button',{name:'打开测试详情'}).click();
  await page.waitForURL(url=>new URLSearchParams(url.hash.slice(1)).get('route')==='/local/fixture-next');
  await page.goBack();
@@ -106,7 +152,7 @@ try {
  await plugin.locator('#status[data-state="ready"]').waitFor();
  await mkdir('.local',{recursive:true});await page.screenshot({path:'.local/sandbox.png',fullPage:true});
  assert.equal(errors.length,0,errors.join('\n'));assert(requests.some(item=>item.operation==='close'));
- console.log(JSON.stringify({sandbox:'opaque',worker:'loaded',nativeRequest:'confirmed',navigation:'back-forward-refresh',errors}));
+ console.log(JSON.stringify({sandbox:'opaque',worker:'loaded',nativeRequest:'confirmed',attachments:'input-drop-paste-binary-empty-stale-failure-retry',navigation:'back-forward-refresh',errors}));
 }catch(error){
  await mkdir('.local',{recursive:true});await page.screenshot({path:'.local/sandbox-failure.png',fullPage:true});
  console.error(JSON.stringify({errors,consoleErrors,requests,frames:await Promise.all(page.frames().map(async frame=>({url:frame.url(),text:await frame.locator('body').innerText().catch(()=>'<unavailable>')})))}));
