@@ -6,10 +6,7 @@ export const NATIVE_METHODS = [
   "sendMessageFromView",
   "sendWorkerMessageFromView",
   "acknowledgeChunkedMessage",
-  "showContextMenu",
   "getFastModeRolloutMetrics",
-  "startFileDrag",
-  "startLinkDrag",
 ] as const;
 
 export type NativeMethod = typeof NATIVE_METHODS[number];
@@ -45,6 +42,7 @@ export interface NativeSnapshot {
   sharedObjects: Record<string, unknown>;
   sentryIPC: boolean;
   fileUploads?: boolean;
+  directoryUploads?: boolean;
 }
 
 export function encode(value: unknown): Payload {
@@ -71,11 +69,14 @@ export function validateWebFrame(value: unknown): asserts value is WebFrame {
   if (!value || typeof value !== "object" || Array.isArray(value)) { throw new Error("Codex 网页消息必须是对象"); }
   const frame = value as Record<string, unknown>;
   if (new TextEncoder().encode(JSON.stringify(frame)).byteLength > 16 * 1024 * 1024) { throw new Error("Codex 网页消息超过限制"); }
-  const keys: Record<string, string[]> = {connect: ["kind"], "app-host": ["kind", "payload"], call: ["kind", "id", "method", "payload"], sentry: ["kind", "method", "payload"], "subscribe-worker": ["kind", "worker"], "unsubscribe-worker": ["kind", "worker"], "upload-begin": ["kind", "id", "name", "size"], "upload-chunk": ["kind", "id", "offset", "data"], "upload-complete": ["kind", "id"], "upload-abort": ["kind", "id"]};
+  const keys: Record<string, string[]> = {connect: ["kind"], "app-host": ["kind", "payload"], call: ["kind", "id", "method", "payload"], sentry: ["kind", "method", "payload"], "subscribe-worker": ["kind", "worker"], "unsubscribe-worker": ["kind", "worker"], "upload-begin": ["kind", "id", "name", "size"], "upload-directory-begin": ["kind", "id", "name"], "upload-directory-entry": ["kind", "id", "relativePath"], "upload-file-begin": ["kind", "id", "directory", "relativePath", "size"], "upload-chunk": ["kind", "id", "offset", "data"], "upload-complete": ["kind", "id"], "upload-abort": ["kind", "id"]};
   const fields = typeof frame.kind === "string" ? keys[frame.kind] : undefined;
   if (!fields || Object.keys(frame).length !== fields.length || Object.keys(frame).some(key => !fields.includes(key))) { throw new Error("Codex 网页消息字段无效"); }
   switch (frame.kind) {
     case "upload-begin":
+    case "upload-directory-begin":
+    case "upload-directory-entry":
+    case "upload-file-begin":
     case "upload-chunk":
     case "upload-complete":
     case "upload-abort": validateUploadFrame(frame); return;
@@ -85,7 +86,7 @@ export function validateWebFrame(value: unknown): asserts value is WebFrame {
       if (typeof frame.id !== "string" || !/^[a-zA-Z0-9-]{1,80}$/.test(frame.id) || !NATIVE_METHODS.includes(frame.method as NativeMethod)) { break; }
       validatePayload(frame.payload);
       const args = decode(frame.payload);
-      const count = frame.method === "sendWorkerMessageFromView" || frame.method === "acknowledgeChunkedMessage" || frame.method === "showContextMenu" ? 2 : 1;
+      const count = frame.method === "sendWorkerMessageFromView" || frame.method === "acknowledgeChunkedMessage" ? 2 : 1;
       if (!Array.isArray(args) || args.length !== count) { throw new Error("Codex 原生调用参数个数无效"); }
       if (frame.method === "sendWorkerMessageFromView" && (typeof args[0] !== "string" || !/^[a-zA-Z0-9_-]{1,80}$/.test(args[0]))) { throw new Error("原生 Worker 名称无效"); }
       return;

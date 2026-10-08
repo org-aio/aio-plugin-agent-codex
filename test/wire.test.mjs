@@ -46,11 +46,27 @@ test("remote frames cannot submit JavaScript or arbitrary native methods", () =>
 });
 
 test("wire preserves undefined and negative zero and rejects executable clone constructors", () => {
-  validateWebFrame({kind:"call",id:"optional",method:"showContextMenu",payload:encode([{},undefined])});
+  validateWebFrame({kind:"call",id:"optional",method:"sendWorkerMessageFromView",payload:encode(['fixture',undefined])});
   validateWebFrame({kind:"app-host",payload:encode({value:-0})});
   for(const payload of [[['Function','return process']],[[7,{name:'Worker',message:'code'}]],[[7,{name:'setTimeout',message:'code'}]]]){
     assert.throws(()=>validateWebFrame({kind:"app-host",payload}));
   }
   assert.throws(()=>validateWebFrame({kind:"connect",source:"window.eval('x')"}));
   assert.throws(()=>validateWebFrame({kind:"call",id:"test",method:"sendWorkerMessageFromView",payload:encode(['../secret',{}])}));
+});
+
+test("directory uploads only accept bounded relative paths inside a minted directory",()=>{
+ const id=randomUUID(),directory=randomUUID();
+ for(const relativePath of ['../outside','/absolute','a//b','a/../b','C:\\secret','a/NUL','a\\b','a/','a/'.repeat(33)+'file','a'.repeat(4097)]){
+  assert.throws(()=>validateWebFrame({kind:'upload-file-begin',id,directory,relativePath,size:0}));
+  assert.throws(()=>validateWebFrame({kind:'upload-directory-entry',id:directory,relativePath}));
+ }
+ assert.throws(()=>validateWebFrame({kind:'upload-file-begin',id,directory:'../other',relativePath:'safe.txt',size:1}));
+ assert.throws(()=>validateWebFrame({kind:'upload-directory-begin',id,name:'safe',path:'/tmp/override'}));
+ validateWebFrame({kind:'upload-directory-begin',id:directory,name:'项目'});
+ validateWebFrame({kind:'upload-directory-entry',id:directory,relativePath:'源码/空目录'});
+ validateWebFrame({kind:'upload-file-begin',id,directory,relativePath:'源码/main.bin',size:3});
+ for(const method of ['showContextMenu','startFileDrag','startLinkDrag']){
+  assert.throws(()=>validateWebFrame({kind:'call',id,method,payload:encode([{}])}));
+ }
 });
