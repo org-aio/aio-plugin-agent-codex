@@ -15,7 +15,7 @@
 ## 当前边界
 
 - UI 和 Buddy 扩展资源从设备当前安装版本读取，不打包或再分发 Codex 安装包。
-- AIO 宿主最低版本为 `2026.10.9`，需启用 WebSocket Upgrade；插件入口使用 AIO Component v2。
+- AIO 宿主最低版本为 `2026.10.9`，需启用 WebSocket Upgrade；插件入口使用 AIO Component v2。宿主管理员需在 `AIO_PROCESS_WORKER_CAPABILITIES` 中追加 `codex.web`，保留已有能力，并批准清单中的固定进程镜像。
 - 每台设备最多四个独立视图。视图绑定登录、租户、用户、插件来源、版本及挂载，授权过期或撤销会关闭通道。
 - 网页上传文件路径、文件拖拽、浏览器菜单和 Electron 内嵌 `<webview>` 尚未完整接入。
 - 官方 UI/IPC 为版本相关接口。更新后读取新版资源，但仍需要兼容性验收；不能承诺所有版本或生态能力自动兼容。
@@ -33,7 +33,7 @@ npm run test:native
 npm run typecheck
 sh scripts/build.sh
 aio plugin validate .
-aio plugin package . --version 0.1.0
+aio plugin package . --git https://github.com/org-aio/aio-plugin-agent-codex.git --version 0.1.0
 ```
 
 `native/` 提供设备助手使用的 Node 连接库；`frontend/` 提供连接外壳与原版 UI 的浏览器传输；`shared/wire.ts` 定义固定帧、原生方法白名单及 structured clone 校验。原版页面由原安装模块渲染。
