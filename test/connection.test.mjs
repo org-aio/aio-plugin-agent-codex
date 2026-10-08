@@ -140,3 +140,93 @@ test('upload limits and cancellation recover without poisoning the native connec
   assert(fixture.actions.some(action=>action.method==='Runtime.evaluate'&&action.params.expression.includes('still-connected')));
  }finally{await connection.close();await fixture.close();if(root){await rm(root,{recursive:true,force:true});}}
 });
+
+test('directory roots are delivered only after every file, preserve nested and empty directories, and survive disconnect',async()=>{
+ const fixture=await desktop();const output=[];let root;
+ const connection=new CodexWebConnection({endpoint:fixture.endpoint,onFrame:frame=>output.push(frame)});
+ const directory=randomUUID(),file=randomUUID(),bytes=Buffer.from([0,128,255]);
+ try {
+  assert.equal((await connection.open()).directoryUploads,true);
+  await connection.receive({kind:'upload-directory-begin',id:directory,name:'项目'});
+  assert.equal(output.at(-1).path,undefined);
+  await connection.receive({kind:'upload-directory-entry',id:directory,relativePath:'空目录/子目录'});
+  await connection.receive({kind:'upload-file-begin',id:file,directory,relativePath:'源码/data.bin',size:bytes.length});
+  await connection.receive({kind:'upload-complete',id:directory});
+  assert.match(output.at(-1).error,/尚未完整/);
+  await connection.receive({kind:'upload-chunk',id:file,offset:0,data:bytes.toString('base64')});
+  await connection.receive({kind:'upload-complete',id:file});
+  const filePath=output.at(-1).path;
+  await connection.receive({kind:'upload-file-begin',id:randomUUID(),directory,relativePath:'源码/data.bin',size:0});
+  assert.match(output.at(-1).error,/不能重复/);
+  assert.deepEqual(await readFile(filePath),bytes);
+  await connection.receive({kind:'upload-complete',id:directory});
+  const path=output.at(-1).path;root=dirname(dirname(path));
+  assert.equal(await stat(join(path,'空目录/子目录')).then(value=>value.isDirectory()),true);
+  assert.deepEqual(await readFile(join(path,'源码/data.bin')),bytes);
+  if(process.platform!=='win32'){
+   assert.equal((await stat(path)).mode&0o777,0o700);
+   assert.equal((await stat(join(path,'源码'))).mode&0o777,0o700);
+   assert.equal((await stat(filePath)).mode&0o777,0o600);
+  }
+  await connection.close();
+  assert.deepEqual(await readFile(join(path,'源码/data.bin')),bytes);
+  assert(!fixture.actions.some(action=>action.method==='Runtime.evaluate'&&action.params.expression.includes('upload-directory')));
+ }finally{await connection.close();await fixture.close();if(root){await rm(root,{recursive:true,force:true});}}
+});
+
+test('cancelled directories remove completed children, refund bytes, reject partial delivery and clean up on disconnect',async()=>{
+ const fixture=await desktop();const output=[];let root;
+ const connection=new CodexWebConnection({endpoint:fixture.endpoint,onFrame:frame=>output.push(frame)});
+ try {
+  await connection.open();const anchor=randomUUID();
+  await connection.receive({kind:'upload-begin',id:anchor,name:'anchor.txt',size:0});
+  await connection.receive({kind:'upload-complete',id:anchor});const retained=output.at(-1).path;root=dirname(dirname(retained));
+  const directory=randomUUID(),ready=randomUUID(),partial=randomUUID();
+  await connection.receive({kind:'upload-directory-begin',id:directory,name:'cancelled'});
+  await connection.receive({kind:'upload-file-begin',id:ready,directory,relativePath:'finished.txt',size:3});
+  await connection.receive({kind:'upload-chunk',id:ready,offset:0,data:Buffer.from('yes').toString('base64')});
+  await connection.receive({kind:'upload-complete',id:ready});const finished=output.at(-1).path;
+  await connection.receive({kind:'upload-file-begin',id:partial,directory,relativePath:'partial.txt',size:10});
+  await connection.receive({kind:'upload-abort',id:partial});
+  await connection.receive({kind:'upload-complete',id:directory});assert.match(output.at(-1).error,/尚未完整/);
+  await connection.receive({kind:'upload-abort',id:directory});
+  await assert.rejects(stat(finished),{code:'ENOENT'});
+  await assert.rejects(stat(join(root,directory)),{code:'ENOENT'});
+  const quota=randomUUID();await connection.receive({kind:'upload-directory-begin',id:quota,name:'quota'});
+  for(let index=0;index<4;index++){
+   await connection.receive({kind:'upload-file-begin',id:randomUUID(),directory:quota,relativePath:'large-'+index+'.bin',size:128*1024*1024});
+   assert.equal(output.at(-1).error,undefined);
+  }
+  await connection.receive({kind:'upload-begin',id:randomUUID(),name:'overflow.txt',size:1});assert.match(output.at(-1).error,/总大小/);
+  await connection.receive({kind:'upload-abort',id:quota});
+  const retry=randomUUID();await connection.receive({kind:'upload-begin',id:retry,name:'retry.txt',size:1});
+  await connection.receive({kind:'upload-chunk',id:retry,offset:0,data:'Zg=='});
+  await connection.receive({kind:'upload-complete',id:retry});assert.equal(await readFile(output.at(-1).path,'utf8'),'f');
+  const interrupted=randomUUID(),child=randomUUID();
+  await connection.receive({kind:'upload-directory-begin',id:interrupted,name:'interrupted'});
+  await connection.receive({kind:'upload-file-begin',id:child,directory:interrupted,relativePath:'finished.txt',size:0});
+  await connection.receive({kind:'upload-complete',id:child});
+  await connection.close();
+  await assert.rejects(stat(join(root,interrupted)),{code:'ENOENT'});
+  assert.equal((await readFile(retained)).length,0);
+ }finally{await connection.close();await fixture.close();if(root){await rm(root,{recursive:true,force:true});}}
+});
+
+test('directory entry quotas include empty and implicit parent directories',async()=>{
+ const fixture=await desktop();const output=[];let root;
+ const connection=new CodexWebConnection({endpoint:fixture.endpoint,onFrame:frame=>output.push(frame)});
+ try {
+  await connection.open();const anchor=randomUUID();
+  await connection.receive({kind:'upload-begin',id:anchor,name:'anchor.txt',size:0});
+  await connection.receive({kind:'upload-complete',id:anchor});root=dirname(dirname(output.at(-1).path));
+  const directory=randomUUID();await connection.receive({kind:'upload-directory-begin',id:directory,name:'many'});
+  for(let index=0;index<4093;index++){
+   await connection.receive({kind:'upload-directory-entry',id:directory,relativePath:'parent/empty-'+index});
+   assert.equal(output.at(-1).error,undefined);
+  }
+  await connection.receive({kind:'upload-directory-entry',id:directory,relativePath:'overflow'});
+  assert.match(output.at(-1).error,/数量/);
+  await connection.receive({kind:'upload-abort',id:directory});
+  await assert.rejects(stat(join(root,directory)),{code:'ENOENT'});
+ }finally{await connection.close();await fixture.close();if(root){await rm(root,{recursive:true,force:true});}}
+});

@@ -191,7 +191,7 @@ export class CodexWebConnection {
     if (event.method === "Runtime.bindingCalled" && event.sessionId === this.sessionId && event.params.name === "__aioNativeFrame") {
       const frame = JSON.parse(event.params.payload) as NativeFrame;
       if (frame.kind === "native-ready") {
-        this.resolveReady?.({ ...frame.snapshot, fileUploads: true });
+        this.resolveReady?.({ ...frame.snapshot, fileUploads: true, directoryUploads: true });
         this.resolveReady = undefined;
         this.rejectReady = undefined;
       } else {

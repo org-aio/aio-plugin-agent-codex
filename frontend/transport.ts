@@ -51,9 +51,11 @@ export function createBrowserTransport(options: BrowserTransportOptions) {
   };
   const files = installFileUploads({
     enabled: options.snapshot.fileUploads === true,
+    directories: options.snapshot.directoryUploads === true,
     request: frame => request(frame.id, frame),
     onState: (pending, error) => options.onUploadState?.(pending, error),
   });
+  // 只声明浏览器能兑现的能力，保留原版界面的浏览器菜单和链接拖拽分支。
   const bridge = {
     windowType: "electron",
     getPreloadStartedAtMs: () => performance.timeOrigin,
@@ -67,8 +69,6 @@ export function createBrowserTransport(options: BrowserTransportOptions) {
     isIntelMacBuild: () => options.snapshot.isIntelMacBuild,
     getSharedObjectSnapshotValue: (key: string) => sharedObjects[key],
     getPathForFile: (file: File) => files.path(file),
-    startFileDrag: (_value: unknown) => false,
-    startLinkDrag: (value: unknown) => { void call("startLinkDrag", [value]).catch(options.onError); },
     acknowledgeChunkedMessage: (transferId: string, sequence: number) => {
       void call("acknowledgeChunkedMessage", [transferId, sequence]).catch(options.onError);
     },
@@ -80,7 +80,6 @@ export function createBrowserTransport(options: BrowserTransportOptions) {
       return call("sendMessageFromView", [message]);
     },
     sendWorkerMessageFromView: (worker: string, message: unknown) => call("sendWorkerMessageFromView", [worker, message]),
-    showContextMenu: (template: unknown, position: unknown) => call("showContextMenu", [template, position]),
     getFastModeRolloutMetrics: (value: unknown) => call("getFastModeRolloutMetrics", [value]),
     subscribeToSystemThemeVariant: (listener: () => void) => {
       themeListeners.add(listener);

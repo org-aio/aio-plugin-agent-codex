@@ -12,6 +12,7 @@ let devices = [];
 let writingRoute = false;
 let opening = false;
 let reopen = false;
+let disposeFileDrop;
 
 function report(text, state = '') { status.textContent = text; status.dataset.state = state; }
 function routeState() {
@@ -50,6 +51,8 @@ async function loadDevices() {
   finally { refresh.disabled = false; }
 }
 async function close() {
+  disposeFileDrop?.();
+  disposeFileDrop = undefined;
   const previous = current;
   current = undefined;
   view.hidden = true;
@@ -101,8 +104,18 @@ window.addEventListener('message', event => {
   if (event.data.kind === 'ready') {
     report('已连接', 'ready');
     if (current && current.route !== routeState().route) { navigateView(routeState().route); }
+    disposeFileDrop?.();
+    const connection = current;
+    disposeFileDrop = window.aioPlugin.onFileDrop?.(drop => {
+      if (!connection || current !== connection || view.hidden) { return; }
+      const rect = view.getBoundingClientRect();
+      const point = {x: (drop.point?.x - rect.left) * view.clientWidth / rect.width, y: (drop.point?.y - rect.top) * view.clientHeight / rect.height};
+      if (point.x < 0 || point.y < 0 || point.x >= rect.width || point.y >= rect.height) { return; }
+      view.contentWindow.postMessage({...drop, point, protocol: 'aio:device-view@1'}, '*');
+    });
   }
-  if (event.data.kind === 'error') { fail(new Error(event.data.error || '设备已经断开')); }
+  if (event.data.kind === 'file-drag' && current && !view.hidden) { window.aioPlugin.fileDrag?.(); }
+  if (event.data.kind === 'error') { disposeFileDrop?.(); disposeFileDrop = undefined; fail(new Error(event.data.error || '设备已经断开')); }
   if (event.data.kind === 'upload' && Number.isSafeInteger(event.data.pending) && event.data.pending >= 0) {
     if (event.data.error) { report(String(event.data.error), 'error'); }
     else { report(event.data.pending ? '正在上传附件…' : '已连接', event.data.pending ? 'loading' : 'ready'); }
