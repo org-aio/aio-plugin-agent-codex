@@ -26,6 +26,7 @@
     "test:browser": "node test/browser/sandbox.mjs"
   },
   "dependencies": {
+    "@types/ungap__structured-clone": "1.2.0",
     "@ungap/structured-clone": "1.4.0",
     "chrome-remote-interface": "0.34.0",
     "parse5": "8.0.0"
@@ -34,7 +35,6 @@
     "@playwright/test": "1.62.0",
     "@types/chrome-remote-interface": "0.31.14",
     "@types/node": "22.19.15",
-    "@types/ungap__structured-clone": "1.2.0",
     "esbuild": "0.28.1",
     "typescript": "5.9.3",
     "ws": "8.22.0"
