@@ -1,6 +1,6 @@
 {
   "name": "@zjarlin/aio-codex-web",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "AIO paired-device connector for the original Codex and Codex Buddy web interface",
   "type": "module",
   "license": "MIT",

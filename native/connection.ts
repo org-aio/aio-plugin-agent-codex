@@ -1,6 +1,8 @@
 import CDP from "chrome-remote-interface";
 import { randomUUID } from "node:crypto";
 import { decode, validateWebFrame, type NativeFrame, type NativeSnapshot, type WebFrame } from "../shared/wire.js";
+import { FileUploads } from "./uploads.js";
+import { type UploadFrame } from "../shared/uploads.js";
 
 declare const NATIVE_BOOTSTRAP_SOURCE: string;
 type Client = Awaited<ReturnType<typeof CDP>>;
@@ -30,6 +32,7 @@ export class CodexWebConnection {
   private creating?: Promise<void>;
   private closing?: Promise<void>;
   private incoming = Promise.resolve();
+  private readonly uploads = new FileUploads();
   private resolveReady?: (value: NativeSnapshot) => void;
   private rejectReady?: (error: Error) => void;
   private readonly endpoint: URL;
@@ -121,6 +124,16 @@ export class CodexWebConnection {
 
   private async dispatch(frame: WebFrame): Promise<void> {
     if (this.stopped || !this.client || !this.sessionId) { throw new Error("Codex 网页窗口尚未连接"); }
+    if (frame.kind.startsWith("upload-")) {
+      const upload = frame as UploadFrame;
+      try {
+        const path = await this.uploads.receive(upload);
+        this.options.onFrame({ kind: "upload-result", id: upload.id, ...(path ? { path } : {}) });
+      } catch (error) {
+        this.options.onFrame({ kind: "upload-result", id: upload.id, error: error instanceof Error ? error.message : "设备附件传输失败" });
+      }
+      return;
+    }
     const result = await this.client.send("Runtime.evaluate", {
       expression: `window.__aioCodexNative.receive(${JSON.stringify(frame)})`,
       returnByValue: true,
@@ -140,8 +153,9 @@ export class CodexWebConnection {
     this.rejectReady = undefined;
     const client = this.client;
     this.client = undefined;
-    if (!client) { return; }
     try {
+      await this.incoming.catch(() => undefined);
+      if (!client) { return; }
       // 窗口创建应答完成后再清理，断线时也不会遗留本连接拥有的窗口。
       await this.creating?.catch(() => undefined);
       const { targetInfos } = await client.send("Target.getTargets");
@@ -149,7 +163,8 @@ export class CodexWebConnection {
         if (this.ownsUrl(target.url)) { await client.send("Target.closeTarget", { targetId: target.targetId }); }
       }
     } finally {
-      await client.close();
+      try { await client?.close(); }
+      finally { await this.uploads.dispose(); }
     }
   }
 
@@ -176,7 +191,7 @@ export class CodexWebConnection {
     if (event.method === "Runtime.bindingCalled" && event.sessionId === this.sessionId && event.params.name === "__aioNativeFrame") {
       const frame = JSON.parse(event.params.payload) as NativeFrame;
       if (frame.kind === "native-ready") {
-        this.resolveReady?.(frame.snapshot);
+        this.resolveReady?.({ ...frame.snapshot, fileUploads: true });
         this.resolveReady = undefined;
         this.rejectReady = undefined;
       } else {

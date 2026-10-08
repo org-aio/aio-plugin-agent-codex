@@ -84,6 +84,7 @@ async function initialize(snapshot: NativeSnapshot): Promise<void> {
   initialized = true;
   transport = createBrowserTransport({
     snapshot,
+    onUploadState: (pending, error) => parent.postMessage({protocol: 'aio:device-view@1', kind: 'upload', pending, error}, '*'),
     async send(frame) {
       if (socket.readyState !== WebSocket.OPEN || socket.bufferedAmount > 16 * 1024 * 1024) { throw new Error('设备通道中断或过载，执行结果需要重新确认'); }
       socket.send(JSON.stringify(frame));

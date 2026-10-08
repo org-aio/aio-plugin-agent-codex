@@ -1,4 +1,5 @@
 import { serialize, deserialize } from "@ungap/structured-clone";
+import { validateUploadFrame, type UploadFrame } from "./uploads.js";
 
 export const PROTOCOL_VERSION = 1;
 export const NATIVE_METHODS = [
@@ -15,7 +16,7 @@ export type NativeMethod = typeof NATIVE_METHODS[number];
 export const SENTRY_METHODS = ["sendRendererStart", "sendScope", "sendEnvelope", "sendStatus", "sendStructuredLog", "sendMetric"] as const;
 export type SentryMethod = typeof SENTRY_METHODS[number];
 export type Payload = ReturnType<typeof serialize>;
-export type WebFrame =
+export type WebFrame = UploadFrame
   | { kind: "connect" }
   | { kind: "app-host"; payload: Payload }
   | { kind: "call"; id: string; method: NativeMethod; payload: Payload }
@@ -29,6 +30,7 @@ export type NativeFrame =
   | { kind: "worker"; worker: string; payload: Payload }
   | { kind: "theme"; theme: string }
   | { kind: "call-result"; id: string; payload?: Payload; error?: string }
+  | { kind: "upload-result"; id: string; path?: string; error?: string }
   | { kind: "error"; error: string };
 
 export interface NativeSnapshot {
@@ -42,6 +44,7 @@ export interface NativeSnapshot {
   isIntelMacBuild: boolean;
   sharedObjects: Record<string, unknown>;
   sentryIPC: boolean;
+  fileUploads?: boolean;
 }
 
 export function encode(value: unknown): Payload {
@@ -68,10 +71,14 @@ export function validateWebFrame(value: unknown): asserts value is WebFrame {
   if (!value || typeof value !== "object" || Array.isArray(value)) { throw new Error("Codex 网页消息必须是对象"); }
   const frame = value as Record<string, unknown>;
   if (new TextEncoder().encode(JSON.stringify(frame)).byteLength > 16 * 1024 * 1024) { throw new Error("Codex 网页消息超过限制"); }
-  const keys: Record<string, string[]> = {connect: ["kind"], "app-host": ["kind", "payload"], call: ["kind", "id", "method", "payload"], sentry: ["kind", "method", "payload"], "subscribe-worker": ["kind", "worker"], "unsubscribe-worker": ["kind", "worker"]};
+  const keys: Record<string, string[]> = {connect: ["kind"], "app-host": ["kind", "payload"], call: ["kind", "id", "method", "payload"], sentry: ["kind", "method", "payload"], "subscribe-worker": ["kind", "worker"], "unsubscribe-worker": ["kind", "worker"], "upload-begin": ["kind", "id", "name", "size"], "upload-chunk": ["kind", "id", "offset", "data"], "upload-complete": ["kind", "id"], "upload-abort": ["kind", "id"]};
   const fields = typeof frame.kind === "string" ? keys[frame.kind] : undefined;
   if (!fields || Object.keys(frame).length !== fields.length || Object.keys(frame).some(key => !fields.includes(key))) { throw new Error("Codex 网页消息字段无效"); }
   switch (frame.kind) {
+    case "upload-begin":
+    case "upload-chunk":
+    case "upload-complete":
+    case "upload-abort": validateUploadFrame(frame); return;
     case "connect": return;
     case "app-host": validatePayload(frame.payload); return;
     case "call": {

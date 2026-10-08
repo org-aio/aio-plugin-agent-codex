@@ -103,6 +103,10 @@ window.addEventListener('message', event => {
     if (current && current.route !== routeState().route) { navigateView(routeState().route); }
   }
   if (event.data.kind === 'error') { fail(new Error(event.data.error || '设备已经断开')); }
+  if (event.data.kind === 'upload' && Number.isSafeInteger(event.data.pending) && event.data.pending >= 0) {
+    if (event.data.error) { report(String(event.data.error), 'error'); }
+    else { report(event.data.pending ? '正在上传附件…' : '已连接', event.data.pending ? 'loading' : 'ready'); }
+  }
 });
 connect.addEventListener('click', () => open());
 refresh.addEventListener('click', () => loadDevices());
