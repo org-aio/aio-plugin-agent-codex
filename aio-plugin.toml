@@ -1,0 +1,24 @@
+schema_version = 2
+
+[plugin.marketplace]
+title = "Codex Buddy"
+summary = "通过已配对设备，在 AIO 中使用原版 Codex 界面、运行时与 Codex Buddy。"
+license = "MIT"
+tags = ["codex", "agent", "device"]
+
+[plugin.runtime]
+artifact = "dist/server"
+host_version = ">=2026.10.9"
+
+[plugin.runtime.process]
+image = "sha256:48a661b5e5f4560287dfc254e948825538d0f7a1379616495a424ed375afd31f"
+endpoints = []
+http_endpoints = []
+services = []
+worker_capabilities = ["codex.web"]
+
+[plugin.frontend]
+path = "dist/frontend"
+
+[plugin.capabilities]
+database = false
