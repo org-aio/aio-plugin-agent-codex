@@ -79,7 +79,8 @@ export class CodexWebConnection {
       if (this.stopped) { throw new Error("Codex 网页连接已关闭"); }
       const setup = this.createWindow(client, sourceSession.sessionId);
       this.creating = setup;
-      return await Promise.race([ready, setup.then(() => ready)]);
+      await setup;
+      return await ready;
     } catch (error) {
       await this.close();
       throw error;
@@ -110,10 +111,29 @@ export class CodexWebConnection {
       const root = document.documentElement ?? document.appendChild(document.createElement("html"));
       const head = document.head ?? root.appendChild(document.createElement("head"));
       const policy = document.createElement("meta"); policy.httpEquiv = "Content-Security-Policy"; policy.content = "script-src 'none'"; head.prepend(policy);
-      window.addEventListener("DOMContentLoaded", () => { document.body.replaceChildren(); document.title = "AIO Codex Web Host"; }, {once: true});
+      // CDP 在解析原入口前运行，body 可能永远不会由原页面创建，不能只等待 DOMContentLoaded。
+      const body = document.body ?? root.appendChild(document.createElement("body"));
+      const title = document.createElement("h1"); title.textContent = "AIO 网页连接已启动";
+      const description = document.createElement("p"); description.textContent = "此窗口为 AIO 网页提供 Codex 连接，可以最小化。关闭此窗口会断开对应网页。";
+      const detail = document.createElement("p"); detail.textContent = "Codex 桌面主窗口可以继续使用，网页与桌面分别操作自己的视图。";
+      const action = document.createElement("button"); action.textContent = "返回 Codex 桌面";
+      action.addEventListener("click", () => {
+        void window.electronBridge.sendMessageFromView({ type: "open-current-main-window" }).catch(error => { detail.textContent = String(error); });
+      });
+      body.replaceChildren(title, description, detail, action);
+      body.style.cssText = "font:16px/1.6 system-ui,sans-serif;max-width:560px;margin:12vh auto;padding:32px;color:CanvasText;background:Canvas;color-scheme:light dark";
+      document.title = "AIO Codex 网页连接";
       ${NATIVE_BOOTSTRAP_SOURCE}\n }`;
     await client.send("Page.addScriptToEvaluateOnNewDocument", { source }, attached.sessionId);
     await client.send("Page.reload", { ignoreCache: true }, attached.sessionId);
+    // 官方新窗口接口会抢占焦点；恢复既有主窗口，不改变用户当前会话或复用其消息端口。
+    if (this.stopped) { return; }
+    const restored = await client.send("Runtime.evaluate", {
+      expression: 'window.electronBridge.sendMessageFromView({ type: "open-current-main-window" })',
+      awaitPromise: true,
+      returnByValue: true,
+    }, sourceSession);
+    if (restored.exceptionDetails) { throw new Error("Codex 桌面主窗口恢复失败"); }
   }
 
   async receive(frame: WebFrame): Promise<void> {
