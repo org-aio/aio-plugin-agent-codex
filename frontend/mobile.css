@@ -79,6 +79,9 @@
   [data-composer-footer-responsive] > .col-start-3 div.shrink-0 {
     flex-shrink: 1;
   }
+  [data-composer-footer-responsive] > .col-start-3 .ms-2 {
+    justify-content: flex-end;
+  }
   /* 给原版模型入口保留宽度，防止其自适应测量把入口收掉。 */
   [data-composer-footer-responsive] > .col-start-3 div.flex-1 {
     min-width: 44px;
