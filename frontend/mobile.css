@@ -1,0 +1,125 @@
+/* 只在网页桥接文档中加载；保留原版控件与事件，在窄屏重排输入操作。 */
+@media (max-width: 700px) {
+  :root {
+    --height-toolbar-sm: 44px;
+    --thread-gutter: 12px;
+    --composer-gutter: 8px;
+    --thread-composer-bottom-inset: max(8px, env(safe-area-inset-bottom));
+  }
+  /* 桌面侧栏的宽度由原版管理；手机上覆盖主区，避免挤成两列。 */
+  [data-app-shell-workspace-row] > [data-app-shell-left-panel-appearance] {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: 0;
+    z-index: 40;
+    max-width: calc(100vw - 48px);
+    background: var(--color-surface);
+  }
+  [data-app-shell-titlebar] {
+    left: 0 !important;
+  }
+  [role="menubar"] {
+    min-width: 0;
+    overflow-x: auto;
+  }
+  [data-app-shell-titlebar] button,
+  [data-app-shell-frame] > div:has(> [role="menubar"]) button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  /* 只调整首页布局容器，保留原版首页、恢复列表和模型收藏功能。 */
+  [class~="group/home-composer-layout"] {
+    padding-top: 8px;
+  }
+  [class~="group/home-composer-layout"] > .contents > .grow {
+    flex: 0 0 auto;
+    min-height: 0;
+  }
+  [class~="group/home-composer-layout"] > .contents > .items-end {
+    padding-bottom: 16px;
+  }
+  [class~="group/home-composer-layout"] > .contents > .grow > [class~="-mt-16"] {
+    margin-top: 0;
+  }
+  [data-codex-composer-root] {
+    order: -1;
+  }
+  /* 历史会话的恢复、收藏、Git 工具可单独滚动，不把消息区挤出矮屏。 */
+  [data-thread-find-composer] {
+    max-height: clamp(180px, 45dvh, 340px);
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scrollbar-width: thin;
+  }
+  [data-composer-body] {
+    min-width: 0;
+    max-width: 100%;
+  }
+  [data-composer-footer-responsive] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+  }
+  [data-composer-footer-responsive] > :has([data-composer-input]) {
+    flex: 1 0 100%;
+    min-width: 0;
+    margin-inline: 0;
+  }
+  [data-composer-footer-responsive] > .col-start-3 {
+    flex: 1 0 100%;
+    min-width: 0;
+  }
+  [data-composer-footer-responsive] > .col-start-3 div.flex {
+    flex-wrap: wrap;
+    min-width: 0;
+    max-width: 100%;
+    gap: 4px;
+  }
+  [data-composer-footer-responsive] > .col-start-3 div.shrink-0 {
+    flex-shrink: 1;
+  }
+  [data-composer-footer-responsive] > .col-start-3 .ms-2 {
+    justify-content: flex-end;
+  }
+  /* 给原版模型入口保留宽度，防止其自适应测量把入口收掉。 */
+  [data-composer-footer-responsive] > .col-start-3 div.flex-1 {
+    min-width: 44px;
+  }
+  [data-composer-footer-responsive] > .col-start-3 .w-full > .shrink-0 {
+    max-width: calc(100% - 48px);
+  }
+  [data-composer-footer-responsive] button,
+  [data-composer-utility-bar] button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  [data-codex-composer] {
+    font-size: 16px;
+    line-height: 1.5;
+  }
+  [data-codexhost-model-shortcuts] {
+    flex-wrap: nowrap !important;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+  [data-codexhost-model-shortcuts] button {
+    min-height: 44px;
+    flex-shrink: 0;
+  }
+  [role="dialog"] {
+    max-width: calc(100vw - 16px);
+    max-height: calc(100dvh - 16px);
+  }
+  [role="menu"] [role^="menuitem"],
+  [role="option"] {
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 700px) and (max-height: 600px) {
+  /* 键盘弹出和矮屏优先展示输入区；项目仍可从原版工具栏切换。 */
+  [class~="group/home-composer-layout"] > .contents > .items-end {
+    display: none;
+  }
+}
