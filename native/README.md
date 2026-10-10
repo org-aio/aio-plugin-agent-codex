@@ -2,6 +2,8 @@
 
 连接设备本机的 loopback CDP，通过官方 `open-in-new-window` 创建独立窗口上下文，只替换该窗口的入口文档；原始 preload、App Host、IPC 与 worker 接口保持由 Codex 提供。现有桌面窗口不复用 App View 端口。
 
+原生新窗口接口会显示并聚焦辅助窗口。连接完成后通过官方 `open-current-main-window` 恢复现有桌面主窗口，不改变其当前会话；辅助窗口显示用途和返回桌面按钮，可以最小化，关闭时只断开对应网页。当前 Renderer 接口不提供隐藏原生窗口的能力，因此不声称辅助窗口已完全隐藏，也不依赖额外的系统辅助功能权限。
+
 设备只接受共享协议定义的消息和方法，不接收 JavaScript 或 CDP 命令。原始前端和 Buddy 资源在用户安装目录读取，不放进 AIO 发布包。协议保持 structured clone 的数组、循环引用、二进制、Map、Set 和 BigInt。
 
 每个连接拥有自己创建的 target，关闭只清理该 target。完整插件上线仍需设备身份与撤权、真实网页交互和升级兼容验收。

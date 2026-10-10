@@ -7,7 +7,7 @@ import {readFile,rm,stat} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
 import {CodexWebConnection,encode} from '../dist/native/index.mjs';
 
-async function desktop({pauseCreation=false}={}) {
+async function desktop({pauseCreation=false,rejectRestore=false}={}) {
  const actions=[];let owned;let endpoint;let nextSession=0;
  let release;const creation=pauseCreation?new Promise(resolve=>{release=resolve;}):Promise.resolve();
  const server=createServer((req,res)=>{
@@ -26,6 +26,9 @@ async function desktop({pauseCreation=false}={}) {
    await creation;
    owned={targetId:'own-view',type:'page',url:'app://-/index.html?initialRoute='+encodeURIComponent(data.path)};
   }
+  if(rejectRestore&&request.method==='Runtime.evaluate'&&request.params.expression.includes('open-current-main-window')){
+   result={exceptionDetails:{text:'restore rejected'}};
+  }
   if(request.method==='Target.getTargets'){result={targetInfos:[{targetId:'user-main',type:'page',url:'app://-/index.html'},...(owned?[owned]:[])]};}
   if(request.method==='Target.closeTarget'){assert.equal(request.params.targetId,'own-view');owned=undefined;result={success:true};}
   socket.send(JSON.stringify({id:request.id,sessionId:request.sessionId,result}));
@@ -43,6 +46,9 @@ test('each connection owns its window and preserves native frame order without c
  const connection=new CodexWebConnection({endpoint:fixture.endpoint,onFrame:frame=>output.push(frame)});
  try {
   assert.equal((await connection.open()).appSessionId,'fixture');
+  const restored=fixture.actions.find(action=>action.method==='Runtime.evaluate'&&action.params.expression.includes('open-current-main-window'));
+  assert.equal(restored?.sessionId,'session-1');
+  assert(!restored.params.expression.includes('path:'));
   await Promise.all([1,2,3].map(index=>connection.receive({kind:'app-host',payload:encode({index})})));
   const frames=fixture.actions.filter(action=>action.method==='Runtime.evaluate'&&action.params.expression.startsWith('window.__aioCodexNative.receive'));
   assert.equal(frames.length,3);
@@ -52,6 +58,15 @@ test('each connection owns its window and preserves native frame order without c
   await connection.close();await connection.close();
   assert.deepEqual(fixture.actions.filter(action=>action.method==='Target.closeTarget').map(action=>action.params.targetId),['own-view']);
   await assert.rejects(connection.receive({kind:'connect'}));
+ }finally{await connection.close();await fixture.close();}
+});
+
+test('a failed desktop restore rejects opening and removes only the owned window',async()=>{
+ const fixture=await desktop({rejectRestore:true});
+ const connection=new CodexWebConnection({endpoint:fixture.endpoint,onFrame:()=>undefined});
+ try {
+  await assert.rejects(connection.open(),/主窗口恢复失败/);
+  assert.deepEqual(fixture.actions.filter(action=>action.method==='Target.closeTarget').map(action=>action.params.targetId),['own-view']);
  }finally{await connection.close();await fixture.close();}
 });
 
