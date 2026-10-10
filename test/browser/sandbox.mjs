@@ -87,8 +87,9 @@ const server=createServer(async(req,res)=>{
    const prefix=origin+mount+'__device_view/'+match[1]+'/';
    res.setHeader('content-security-policy',`default-src 'none'; script-src 'unsafe-inline' 'wasm-unsafe-eval' ${prefix} blob:; connect-src ${prefix} ${prefix.replace('http:','ws:')} blob:; style-src 'unsafe-inline' ${prefix}; img-src data: blob: ${prefix}; font-src data: ${prefix}; worker-src data: ${prefix}; object-src 'none'; frame-src 'none'; form-action 'none'; base-uri ${prefix}`);
    if(match[2]==='index.html'){res.setHeader('content-type','text/html');res.end(body);return;}
+   const virtual=virtualAsset(match[2]);
+   if(virtual){res.setHeader('content-type',virtual.contentType);res.end(virtual.bytes);return;}
    res.setHeader('content-type','text/javascript');
-   if(match[2]==='__boot.js'){res.end(virtualAsset('__boot.js').bytes);return;}
    if(match[2]==='__buddy.js'){res.end('window.buddyLoaded=true;');return;}
    if(match[2]==='assets/fixture.js'){res.end(module);return;}
    if(match[2]==='assets/worker.js'){res.end('postMessage("Worker 模块加载成功");');return;}
@@ -131,7 +132,7 @@ web.on('connection',socket=>{
  socket.on('close',()=>{uploadCleanup.push(queue.then(()=>uploads.dispose()));});
 });
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));origin=`http://127.0.0.1:${server.address().port}`;
-const browser=await chromium.launch({headless:true});
+const browser=await chromium.launch({headless:true,executablePath:process.env.AIO_UI_BROWSER_EXECUTABLE});
 const page=await browser.newPage({viewport:{width:1440,height:1000}});const errors=[];const consoleErrors=[];const dragEvents=[];page.on('pageerror',error=>errors.push(error.message));page.on('console',message=>{if(message.type()==='error'){consoleErrors.push(message.text());}if(message.text().startsWith('DRAG ')){dragEvents.push(message.text());}});
 let directorySource;
 try {
@@ -210,6 +211,20 @@ try {
  await plugin.getByRole('button',{name:'重新连接',exact:true}).click();
  await plugin.locator('#status[data-state="ready"]').waitFor();
  await mkdir('.local',{recursive:true});await page.screenshot({path:'.local/sandbox.png',fullPage:true});
+ for(const size of [{width:320,height:568},{width:390,height:844},{width:430,height:420}]){
+  await page.setViewportSize(size);
+  const dimensions=await plugin.locator('body').evaluate(()=>({width:innerWidth,scrollWidth:document.documentElement.scrollWidth,header:document.querySelector('header').getBoundingClientRect().height,view:document.querySelector('#view').getBoundingClientRect().height}));
+  assert(dimensions.scrollWidth<=dimensions.width,'手机连接栏不能横向溢出');
+  assert(dimensions.header<=54,'已连接后应收起设备控件');
+  assert(dimensions.view>=size.height*0.7,'连接栏不应占据聊天主体');
+  const opens=requests.filter(item=>item.operation==='open').length;
+  await plugin.getByRole('button',{name:'设备',exact:true}).click();
+  assert(await plugin.getByRole('combobox',{name:'Codex 设备'}).isVisible());
+  await page.screenshot({path:`.local/mobile-${size.width}-devices.png`});
+  await plugin.getByRole('button',{name:'设备',exact:true}).click();
+  assert.equal(requests.filter(item=>item.operation==='open').length,opens,'展开收起不应重连或抢占视图');
+  await page.screenshot({path:`.local/mobile-${size.width}-connected.png`});
+ }
  assert.equal(errors.length,0,errors.join('\n'));assert(requests.some(item=>item.operation==='close'));
  console.log(JSON.stringify({sandbox:'opaque',worker:'loaded',nativeRequest:'confirmed',attachments:'input-drop-paste-binary-empty-stale-failure-retry',directories:'real-filesystem-drop-paginated-nested-empty-failure-cleanup-retention',linkDrag:'browser-default',navigation:'back-forward-refresh',errors}));
 }catch(error){

@@ -17,6 +17,7 @@ await build({
   target: "chrome120", outfile: "dist/native/browser-bootstrap.js",
 });
 const browserSource = await readFile("dist/native/browser-bootstrap.js", "utf8");
+const mobileStyles = await readFile("frontend/mobile.css", "utf8");
 await build({
   entryPoints: ["native/index.ts"],
   bundle: true,
@@ -25,5 +26,5 @@ await build({
   target: "node22",
   outfile: "dist/native/index.mjs",
   banner: { js: "import {createRequire} from 'node:module';const require=createRequire(import.meta.url);" },
-  define: { NATIVE_BOOTSTRAP_SOURCE: JSON.stringify(nativeSource), BROWSER_BOOTSTRAP_SOURCE: JSON.stringify(browserSource) },
+  define: { NATIVE_BOOTSTRAP_SOURCE: JSON.stringify(nativeSource), BROWSER_BOOTSTRAP_SOURCE: JSON.stringify(browserSource), BROWSER_MOBILE_STYLES: JSON.stringify(mobileStyles) },
 });

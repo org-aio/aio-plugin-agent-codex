@@ -5,6 +5,8 @@ const connect = document.querySelector('#connect');
 const refresh = document.querySelector('#refresh');
 const status = document.querySelector('#status');
 const error = document.querySelector('#error');
+const connectionMenu = document.querySelector('#connection-menu');
+const header = document.querySelector('header');
 let current;
 let serial = 0;
 let fragment = '';
@@ -15,11 +17,16 @@ let reopen = false;
 let disposeFileDrop;
 
 function report(text, state = '') { status.textContent = text; status.dataset.state = state; }
+function expandConnection(expanded) {
+  header.dataset.expanded = String(expanded);
+  connectionMenu.setAttribute('aria-expanded', String(expanded));
+}
 function routeState() {
   const query = new URLSearchParams(fragment.replace(/^#/, ''));
   return {device: query.get('device') || '', route: query.get('route') || '/'};
 }
 function fail(cause) {
+  expandConnection(true);
   error.textContent = cause.message || String(cause);
   report('连接不可用', 'error');
   welcome.hidden = false;
@@ -103,6 +110,7 @@ window.addEventListener('message', event => {
   }
   if (event.data.kind === 'ready') {
     report('已连接', 'ready');
+    expandConnection(false);
     if (current && current.route !== routeState().route) { navigateView(routeState().route); }
     disposeFileDrop?.();
     const connection = current;
@@ -122,6 +130,7 @@ window.addEventListener('message', event => {
   }
 });
 connect.addEventListener('click', () => open());
+connectionMenu.addEventListener('click', () => expandConnection(header.dataset.expanded !== 'true'));
 refresh.addEventListener('click', () => loadDevices());
 device.addEventListener('change', () => { connect.disabled = !device.value; });
 document.querySelector('#copy').addEventListener('click', async () => {

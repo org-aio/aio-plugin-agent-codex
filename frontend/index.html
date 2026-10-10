@@ -1,9 +1,9 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Codex Buddy</title><link rel="stylesheet" href="styles.css"><script src="app.js" defer></script></head>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"><title>Codex Buddy</title><link rel="stylesheet" href="styles.css"><script src="app.js" defer></script></head>
 <body>
 <main>
-  <header><div class="brand"><span class="symbol" aria-hidden="true">⌘</span><strong>Codex Buddy</strong></div><label class="device-label" for="device">设备</label><select id="device" aria-label="Codex 设备"><option>正在读取设备…</option></select><button id="refresh" type="button" title="刷新设备列表" aria-label="刷新设备列表">↻</button><button id="connect" type="button" disabled>连接</button><span id="status" role="status">正在检查</span></header>
+  <header data-expanded="true"><div class="brand"><span class="symbol" aria-hidden="true">⌘</span><strong>Codex Buddy</strong></div><span id="status" role="status">正在检查</span><button id="connection-menu" type="button" aria-controls="connection-controls" aria-expanded="true">设备</button><div id="connection-controls"><label class="device-label" for="device">设备</label><select id="device" aria-label="Codex 设备"><option>正在读取设备…</option></select><button id="refresh" type="button" title="刷新设备列表" aria-label="刷新设备列表">↻</button><button id="connect" type="button" disabled>连接</button></div></header>
   <section id="welcome"><div class="intro"><span class="eyebrow">从已配对设备继续工作</span><h1>你的 Codex，放到网页上。</h1><p>连接正在运行 Codex Buddy 的设备，使用原版界面、项目、聊天和工具。</p><div class="steps"><span>1</span><p>在设备上打开 Codex Buddy。</p><span>2</span><p>在已配对设备运行 <code>aio device codex-enable</code><button id="copy" type="button">复制</button></p><span>3</span><p>在上方选择设备并连接。</p></div><p id="error" role="alert"></p></div></section>
   <iframe id="view" title="原版 Codex 和 Codex Buddy" sandbox="allow-scripts" referrerpolicy="no-referrer" hidden></iframe>
 </main>
